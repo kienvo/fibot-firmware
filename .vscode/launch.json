@@ -1,0 +1,27 @@
+{
+	"version": "0.2.0",
+	"configurations": [	
+		{
+			"name": "(gdb) Launch",
+			"type": "cppdbg",
+			"request": "launch",
+			"targetArchitecture": "arm",
+			"program": "${workspaceFolder}/build/fibot.elf",
+			"stopAtEntry": false,
+			"cwd": "${workspaceRoot}",
+			"externalConsole": true,
+            "debugServerArgs": "-f board/stm32f4discovery.cfg -c init -c \"reset init\"",
+            "filterStderr": true,
+            "filterStdout": true,
+            "serverStarted": "Listening on port 3333 for gdb connections",
+			"MIMode": "gdb",
+			"miDebuggerPath": "gdb",
+			"debugServerPath": "openocd",
+            "setupCommands": [
+                { "text": "-target-select ext :3333", "description": "connect to target", "ignoreFailures": false },
+                { "text": "-file-exec-and-symbols ${workspaceFolder}/build/fibot.elf", "description": "load file", "ignoreFailures": false},
+                { "text": "-target-download", "description": "flash target", "ignoreFailures": false }
+            ],
+		}
+	]
+}
