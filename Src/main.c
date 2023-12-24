@@ -60,6 +60,152 @@ void MX_USB_HOST_Process(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+
+VL53L0X_Error WaitMeasurementDataReady(VL53L0X_DEV Dev) {
+    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+    uint8_t NewDatReady=0;
+    uint32_t LoopNb;
+
+    // Wait until it finished
+    // use timeout to avoid deadlock
+    if (Status == VL53L0X_ERROR_NONE) {
+        LoopNb = 0;
+        do {
+            Status = VL53L0X_GetMeasurementDataReady(Dev, &NewDatReady);
+            if ((NewDatReady == 0x01) || Status != VL53L0X_ERROR_NONE) {
+                break;
+            }
+            LoopNb = LoopNb + 1;
+            VL53L0X_PollingDelay(Dev);
+        } while (LoopNb < VL53L0X_DEFAULT_MAX_LOOP);
+
+        if (LoopNb >= VL53L0X_DEFAULT_MAX_LOOP) {
+            Status = VL53L0X_ERROR_TIME_OUT;
+        }
+    }
+
+    return Status;
+}
+
+VL53L0X_Error WaitStopCompleted(VL53L0X_DEV Dev) {
+    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+    uint32_t StopCompleted=0;
+    uint32_t LoopNb;
+
+    // Wait until it finished
+    // use timeout to avoid deadlock
+    if (Status == VL53L0X_ERROR_NONE) {
+        LoopNb = 0;
+        do {
+            Status = VL53L0X_GetStopCompletedStatus(Dev, &StopCompleted);
+            if ((StopCompleted == 0x00) || Status != VL53L0X_ERROR_NONE) {
+                break;
+            }
+            LoopNb = LoopNb + 1;
+            VL53L0X_PollingDelay(Dev);
+        } while (LoopNb < VL53L0X_DEFAULT_MAX_LOOP);
+
+        if (LoopNb >= VL53L0X_DEFAULT_MAX_LOOP) {
+            Status = VL53L0X_ERROR_TIME_OUT;
+        }
+	
+    }
+
+    return Status;
+}
+    
+VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) {
+    VL53L0X_RangingMeasurementData_t    RangingMeasurementData;
+    VL53L0X_RangingMeasurementData_t   *pRangingMeasurementData    = &RangingMeasurementData;
+    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+    uint32_t refSpadCount;
+    uint8_t isApertureSpads;
+    uint8_t VhvSettings;
+    uint8_t PhaseCal;
+	
+	// StaticInit will set interrupt by default
+	Status = VL53L0X_StaticInit(dev); // Device Initialization
+    assert_param(Status == VL53L0X_ERROR_NONE);
+    
+	Status = VL53L0X_PerformRefCalibration(dev,
+			&VhvSettings, &PhaseCal); // Device Initialization
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_PerformRefSpadManagement(dev,
+			&refSpadCount, &isApertureSpads); // Device Initialization
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_SetDeviceMode(dev, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING); // Setup in single ranging mode
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_StartMeasurement(dev);
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	uint32_t measurement;
+	uint32_t no_of_measurements = 1000;
+
+	uint16_t* pResults = (uint16_t*)malloc(sizeof(uint16_t) * no_of_measurements);
+
+	for(measurement=0; measurement<no_of_measurements; measurement++)
+	{
+		Status = WaitMeasurementDataReady(dev);
+		assert_param(Status == VL53L0X_ERROR_NONE);
+
+		Status = VL53L0X_GetRangingMeasurementData(dev, pRangingMeasurementData);
+		assert_param(Status == VL53L0X_ERROR_NONE);
+
+		*(pResults + measurement) = pRangingMeasurementData->RangeMilliMeter;
+		printf("In loop measurement %d: %d\n", measurement, pRangingMeasurementData->RangeMilliMeter);
+
+		// Clear the interrupt
+		VL53L0X_ClearInterruptMask(dev, VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+		VL53L0X_PollingDelay(dev);
+		HAL_Delay(100);
+
+	}
+
+	printf("measurement %d: %d\n", measurement, *(pResults + measurement));
+
+	free(pResults);
+
+	Status = VL53L0X_StopMeasurement(dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+		
+	Status = WaitStopCompleted(dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+	
+	Status = VL53L0X_ClearInterruptMask(dev,
+			VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	return Status;
+}
+
+void test_tof() {
+	VL53L0X_Dev_t dev = {
+		.I2cDevAddr = 0x52, 
+		.hi2c = &hi2c1
+	};
+	VL53L0X_Error Status;
+
+	VL53L0X_DeviceInfo_t info;
+	uint16_t vl53l0x_id;
+	
+	assert_param(HAL_I2C_IsDeviceReady(&hi2c1, dev.I2cDevAddr, 2, 2) == HAL_OK);
+
+	Status = VL53L0X_GetDeviceInfo(&dev, &info);
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_RdWord(&dev, VL53L0X_REG_IDENTIFICATION_MODEL_ID, (uint16_t *) &vl53l0x_id);
+    assert_param(Status == VL53L0X_ERROR_NONE);
+    assert_param(vl53l0x_id == 0xEEAA);
+
+	Status = VL53L0X_DataInit(&dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	rangingTest(&dev);
+}
+	
 /* USER CODE END 0 */
 
 /**
@@ -95,7 +241,7 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 2 */
-
+	test_tof();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -106,6 +252,9 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+		// for (int i=1; i<127; i++) {
+		// 	int r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 2, 2);
+		// }
   }
   /* USER CODE END 3 */
 }
@@ -167,6 +316,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+	HAL_GPIO_WritePin(LD5_GPIO_Port, LD5_Pin, 1);
   __disable_irq();
   while (1)
   {
@@ -187,6 +337,8 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+	//asm("BKPT 0");
+	Error_Handler();
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

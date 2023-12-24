@@ -17,6 +17,7 @@
                 "-ffunction-sections",
                 "-mcpu=cortex-m4",
 				"-IInc ",
+				"-IInc/vl53l0x ",
 				"-IDrivers/STM32F4xx_HAL_Driver/Inc ",
 				"-IDrivers/STM32F4xx_HAL_Driver/Inc/Legacy ",
 				"-IMiddlewares/ST/STM32_USB_Host_Library/Core/Inc ",
