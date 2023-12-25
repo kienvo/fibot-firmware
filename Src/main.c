@@ -21,6 +21,7 @@
 #include "i2c.h"
 #include "i2s.h"
 #include "spi.h"
+#include "tim.h"
 #include "usb_host.h"
 #include "gpio.h"
 
@@ -240,7 +241,14 @@ int main(void)
   MX_I2S3_Init();
   MX_SPI1_Init();
   MX_USB_HOST_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 1000);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 5000);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
 	test_tof();
   /* USER CODE END 2 */
 
