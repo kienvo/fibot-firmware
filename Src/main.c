@@ -115,7 +115,8 @@ VL53L0X_Error WaitStopCompleted(VL53L0X_DEV Dev) {
     return Status;
 }
     
-VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) {
+VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) 
+{
     VL53L0X_RangingMeasurementData_t    RangingMeasurementData;
     VL53L0X_RangingMeasurementData_t   *pRangingMeasurementData    = &RangingMeasurementData;
     VL53L0X_Error Status = VL53L0X_ERROR_NONE;
@@ -182,7 +183,8 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) {
 	return Status;
 }
 
-void test_tof() {
+void test_tof() 
+{
 	VL53L0X_Dev_t dev = {
 		.I2cDevAddr = 0x52, 
 		.hi2c = &hi2c1
@@ -205,6 +207,45 @@ void test_tof() {
 	assert_param(Status == VL53L0X_ERROR_NONE);
 
 	rangingTest(&dev);
+}
+
+void M1change(int32_t speed) 
+{
+	assert_param(speed <= 10000 && speed >= -10000); // TODO: change to constant symbol
+	HAL_GPIO_WritePin(MA1_GPIO_Port, MA1_Pin, speed < 0);
+	HAL_GPIO_WritePin(MB1_GPIO_Port, MB1_Pin, speed > 0);
+
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, abs(speed));
+}
+
+void M2change(int32_t speed) 
+{
+	assert_param(speed <= 10000 && speed >= -10000); // TODO: change to constant symbol
+	HAL_GPIO_WritePin(MA2_GPIO_Port, MA2_Pin, speed < 0);
+	HAL_GPIO_WritePin(MB2_GPIO_Port, MB2_Pin, speed > 0);
+
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, abs(speed));
+}
+
+void test_motors() 
+{
+	while(1) {
+		M1change(-10000);
+		M2change(-10000);
+		HAL_Delay(2000);
+		M1change(-5000);
+		M2change(-5000);
+		HAL_Delay(2000);
+		M1change(0);
+		M2change(0);
+		HAL_Delay(2000);
+		M1change(5000);
+		M2change(5000);
+		HAL_Delay(2000);
+		M1change(10000);
+		M2change(10000);
+		HAL_Delay(2000);
+	}
 }
 	
 /* USER CODE END 0 */
@@ -243,12 +284,11 @@ int main(void)
   MX_USB_HOST_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 1000);
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 5000);
-	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+	test_motors();
 	test_tof();
   /* USER CODE END 2 */
 

@@ -33,6 +33,7 @@ extern "C" {
 /* USER CODE BEGIN Includes */
 #include "vl53l0x_def.h"
 #include "vl53l0x_api.h"
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -84,6 +85,14 @@ void Error_Handler(void);
 #define SPI1_MOSI_GPIO_Port GPIOA
 #define BOOT1_Pin GPIO_PIN_2
 #define BOOT1_GPIO_Port GPIOB
+#define MA2_Pin GPIO_PIN_7
+#define MA2_GPIO_Port GPIOE
+#define MA1_Pin GPIO_PIN_8
+#define MA1_GPIO_Port GPIOE
+#define MB2_Pin GPIO_PIN_9
+#define MB2_GPIO_Port GPIOE
+#define MB1_Pin GPIO_PIN_10
+#define MB1_GPIO_Port GPIOE
 #define CLK_IN_Pin GPIO_PIN_10
 #define CLK_IN_GPIO_Port GPIOB
 #define LD4_Pin GPIO_PIN_12
