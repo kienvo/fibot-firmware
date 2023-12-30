@@ -215,7 +215,7 @@ void M1change(int32_t speed)
 	HAL_GPIO_WritePin(MA1_GPIO_Port, MA1_Pin, speed < 0);
 	HAL_GPIO_WritePin(MB1_GPIO_Port, MB1_Pin, speed > 0);
 
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, abs(speed));
+	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, abs(speed));
 }
 
 void M2change(int32_t speed) 
@@ -224,11 +224,18 @@ void M2change(int32_t speed)
 	HAL_GPIO_WritePin(MA2_GPIO_Port, MA2_Pin, speed < 0);
 	HAL_GPIO_WritePin(MB2_GPIO_Port, MB2_Pin, speed > 0);
 
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, abs(speed));
+	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, abs(speed));
 }
 
 void test_motors() 
 {
+	int16_t v10 = 0;
+	int16_t v20 = 0;
+	while(1) {
+		v10 = (TIM1->CNT);
+		v20 = (TIM3->CNT);
+		HAL_Delay(50);
+	}
 	while(1) {
 		M1change(-10000);
 		M2change(-10000);
@@ -283,11 +290,15 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   MX_TIM3_Init();
+  MX_TIM1_Init();
+  MX_TIM12_Init();
   /* USER CODE BEGIN 2 */
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
-	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
-	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
-	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, 0);
+	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0);
+	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
+	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 	test_motors();
 	test_tof();
   /* USER CODE END 2 */
