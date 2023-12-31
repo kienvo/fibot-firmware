@@ -27,6 +27,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "mpu6050.h"
 
 /* USER CODE END Includes */
 
@@ -165,7 +166,6 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
 
 	}
 
-	printf("measurement %d: %d\n", measurement, *(pResults + measurement));
 
 	free(pResults);
 
@@ -191,7 +191,7 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
 6 0x5C
 */
 
-const tofXpin[] = {
+const uint16_t tofXpin[] = {
 	TO0X_Pin, 
 	TO1X_Pin, 
 	TO2X_Pin, 
@@ -269,6 +269,24 @@ void tofArraySetup()
 		assert_param(HAL_I2C_IsDeviceReady(&hi2c1, addrs[i], 2, 2) == HAL_OK);
 	}
 
+}
+
+void MPU6050_test() 
+{
+	MPU6050_t mpu;
+	while(MPU6050_Init(&hi2c1) == 1);
+	MPU6050_EnInt(&hi2c1);
+	while(1) {
+		MPU6050_Read_All(&hi2c1,&mpu);
+		// mpu.KalmanAngleX
+		HAL_Delay(10);
+		MPU6050_Read_All(&hi2c1,&mpu);
+		HAL_Delay(10);
+		MPU6050_Read_All(&hi2c1,&mpu);
+		HAL_Delay(10);
+		MPU6050_Read_All(&hi2c1,&mpu);
+		HAL_Delay(10);
+	}
 }
 
 void M1change(int32_t speed) 
@@ -358,7 +376,8 @@ int main(void)
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 	//test_motors();
 	tofArraySetup();
-	test_tof();
+	//test_tof();
+	MPU6050_test();
   /* USER CODE END 2 */
 
   /* Infinite loop */

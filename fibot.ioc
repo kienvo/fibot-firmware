@@ -1,6 +1,8 @@
 #MicroXplorer Configuration settings - do not modify
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
+I2C1.I2C_Mode=I2C_Fast
+I2C1.IPParameters=I2C_Mode
 I2S3.AudioFreq-Half_Duplex_Master=I2S_AUDIOFREQ_96K
 I2S3.ErrorAudioFreq=-2.34 %
 I2S3.ErrorAudioFreq-Half_Duplex_Master=0.8 %
