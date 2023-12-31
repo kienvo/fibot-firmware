@@ -144,7 +144,7 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
     assert_param(Status == VL53L0X_ERROR_NONE);
 
 	uint32_t measurement;
-	uint32_t no_of_measurements = 1000;
+	uint32_t no_of_measurements = 100000;
 
 	uint16_t* pResults = (uint16_t*)malloc(sizeof(uint16_t) * no_of_measurements);
 
@@ -157,7 +157,6 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
 		assert_param(Status == VL53L0X_ERROR_NONE);
 
 		*(pResults + measurement) = pRangingMeasurementData->RangeMilliMeter;
-		printf("In loop measurement %d: %d\n", measurement, pRangingMeasurementData->RangeMilliMeter);
 
 		// Clear the interrupt
 		VL53L0X_ClearInterruptMask(dev, VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
@@ -183,10 +182,46 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
 	return Status;
 }
 
+/*
+1 0x52
+2 0x54
+3 0x56
+4 0x58
+5 0x5A
+6 0x5C
+*/
+
+const tofXpin[] = {
+	TO0X_Pin, 
+	TO1X_Pin, 
+	TO2X_Pin, 
+	TO3X_Pin, 
+	TO4X_Pin, 
+	TO5X_Pin
+};
+
+const GPIO_TypeDef * tofXport[] = {
+	TO0X_GPIO_Port, 
+	TO1X_GPIO_Port, 
+	TO2X_GPIO_Port, 
+	TO3X_GPIO_Port, 
+	TO4X_GPIO_Port, 
+	TO5X_GPIO_Port
+};
+
+const uint8_t addrs[] = {
+	0x52,
+	0x54,
+	0x56,
+	0x58,
+	0x5A,
+	0x5C
+};
+
 void test_tof() 
 {
 	VL53L0X_Dev_t dev = {
-		.I2cDevAddr = 0x52, 
+		.I2cDevAddr = addrs[1], 
 		.hi2c = &hi2c1
 	};
 	VL53L0X_Error Status;
@@ -209,6 +244,33 @@ void test_tof()
 	rangingTest(&dev);
 }
 
+void tofArraySetup() 
+{
+	VL53L0X_Dev_t dev = {
+		.I2cDevAddr = addrs[0], 
+		.hi2c = &hi2c1
+	};
+	VL53L0X_Error Status;
+	for (int i=5; i>=0; i--) {
+		HAL_GPIO_WritePin(tofXport[i], tofXpin[i], 1);
+		HAL_Delay(2);
+		
+		Status = VL53L0X_DataInit(&dev);
+		//assert_param(Status == VL53L0X_ERROR_NONE);
+		
+		Status = VL53L0X_SetDeviceAddress(&dev, addrs[i]);
+		//assert_param(Status == VL53L0X_ERROR_NONE);
+
+	}
+
+	// confirm setup
+	for (int i=0; i<6; i++)
+	{
+		assert_param(HAL_I2C_IsDeviceReady(&hi2c1, addrs[i], 2, 2) == HAL_OK);
+	}
+
+}
+
 void M1change(int32_t speed) 
 {
 	assert_param(speed <= 10000 && speed >= -10000); // TODO: change to constant symbol
@@ -229,14 +291,9 @@ void M2change(int32_t speed)
 
 void test_motors() 
 {
-	int16_t v10 = 0;
-	int16_t v20 = 0;
 	while(1) {
-		v10 = (TIM1->CNT);
-		v20 = (TIM3->CNT);
-		HAL_Delay(50);
-	}
-	while(1) {
+		int16_t v10 = (TIM1->CNT);
+		int16_t v20 = (TIM3->CNT);
 		M1change(-10000);
 		M2change(-10000);
 		HAL_Delay(2000);
@@ -299,7 +356,8 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
 	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
-	test_motors();
+	//test_motors();
+	tofArraySetup();
 	test_tof();
   /* USER CODE END 2 */
 
@@ -311,9 +369,11 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
-		// for (int i=1; i<127; i++) {
-		// 	int r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 2, 2);
-		// }
+		int r;
+		for (int i=1; i<127; i++) {
+			r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 2, 2);
+			HAL_Delay(5);
+		}
   }
   /* USER CODE END 3 */
 }
