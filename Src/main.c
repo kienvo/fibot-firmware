@@ -115,59 +115,74 @@ VL53L0X_Error WaitStopCompleted(VL53L0X_DEV Dev) {
 
     return Status;
 }
-    
-VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) 
+
+VL53L0X_Error tof_setup_start(VL53L0X_Dev_t *dev, VL53L0X_DeviceModes mode)
 {
-    VL53L0X_RangingMeasurementData_t    RangingMeasurementData;
-    VL53L0X_RangingMeasurementData_t   *pRangingMeasurementData    = &RangingMeasurementData;
-    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
-    uint32_t refSpadCount;
-    uint8_t isApertureSpads;
     uint8_t VhvSettings;
     uint8_t PhaseCal;
+    uint32_t refSpadCount;
+    uint8_t isApertureSpads;
 	
+	VL53L0X_DeviceInfo_t info;
+	uint16_t vl53l0x_id;
+	VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+	
+	assert_param(HAL_I2C_IsDeviceReady(&hi2c1, dev->I2cDevAddr, 2, 2) == HAL_OK);
+
+	Status = VL53L0X_GetDeviceInfo(dev, &info);
+    assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_RdWord(dev, VL53L0X_REG_IDENTIFICATION_MODEL_ID, (uint16_t *) &vl53l0x_id);
+    assert_param(Status == VL53L0X_ERROR_NONE);
+    assert_param(vl53l0x_id == 0xEEAA);
+
+	Status = VL53L0X_DataInit(dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
 	// StaticInit will set interrupt by default
 	Status = VL53L0X_StaticInit(dev); // Device Initialization
     assert_param(Status == VL53L0X_ERROR_NONE);
     
 	Status = VL53L0X_PerformRefCalibration(dev,
-			&VhvSettings, &PhaseCal); // Device Initialization
+			&VhvSettings, &PhaseCal);
     assert_param(Status == VL53L0X_ERROR_NONE);
 
 	Status = VL53L0X_PerformRefSpadManagement(dev,
-			&refSpadCount, &isApertureSpads); // Device Initialization
+			&refSpadCount, &isApertureSpads);
     assert_param(Status == VL53L0X_ERROR_NONE);
 
-	Status = VL53L0X_SetDeviceMode(dev, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING); // Setup in single ranging mode
+	Status = VL53L0X_SetDeviceMode(dev, mode); // Setup in single ranging mode
     assert_param(Status == VL53L0X_ERROR_NONE);
 
 	Status = VL53L0X_StartMeasurement(dev);
     assert_param(Status == VL53L0X_ERROR_NONE);
+}
+void wait_getData(VL53L0X_Dev_t *dev, VL53L0X_RangingMeasurementData_t   *data) {
+    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+	Status = WaitMeasurementDataReady(dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_GetRangingMeasurementData(dev, data);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	// Clear the interrupt
+	VL53L0X_ClearInterruptMask(dev, VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+}
+VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) 
+{
+    VL53L0X_RangingMeasurementData_t    data;
+    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
+	
+	tof_setup_start(dev, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
 
 	uint32_t measurement;
 	uint32_t no_of_measurements = 100000;
 
-	uint16_t* pResults = (uint16_t*)malloc(sizeof(uint16_t) * no_of_measurements);
-
-	for(measurement=0; measurement<no_of_measurements; measurement++)
-	{
-		Status = WaitMeasurementDataReady(dev);
-		assert_param(Status == VL53L0X_ERROR_NONE);
-
-		Status = VL53L0X_GetRangingMeasurementData(dev, pRangingMeasurementData);
-		assert_param(Status == VL53L0X_ERROR_NONE);
-
-		*(pResults + measurement) = pRangingMeasurementData->RangeMilliMeter;
-
-		// Clear the interrupt
-		VL53L0X_ClearInterruptMask(dev, VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+	while (1) {
+		wait_getData(dev, &data);
 		VL53L0X_PollingDelay(dev);
 		HAL_Delay(100);
-
 	}
-
-
-	free(pResults);
 
 	Status = VL53L0X_StopMeasurement(dev);
 	assert_param(Status == VL53L0X_ERROR_NONE);
@@ -218,31 +233,14 @@ const uint8_t addrs[] = {
 	0x5C
 };
 
-void test_tof() 
-{
-	VL53L0X_Dev_t dev = {
-		.I2cDevAddr = addrs[1], 
-		.hi2c = &hi2c1
-	};
-	VL53L0X_Error Status;
-
-	VL53L0X_DeviceInfo_t info;
-	uint16_t vl53l0x_id;
-	
-	assert_param(HAL_I2C_IsDeviceReady(&hi2c1, dev.I2cDevAddr, 2, 2) == HAL_OK);
-
-	Status = VL53L0X_GetDeviceInfo(&dev, &info);
-    assert_param(Status == VL53L0X_ERROR_NONE);
-
-	Status = VL53L0X_RdWord(&dev, VL53L0X_REG_IDENTIFICATION_MODEL_ID, (uint16_t *) &vl53l0x_id);
-    assert_param(Status == VL53L0X_ERROR_NONE);
-    assert_param(vl53l0x_id == 0xEEAA);
-
-	Status = VL53L0X_DataInit(&dev);
-	assert_param(Status == VL53L0X_ERROR_NONE);
-
-	rangingTest(&dev);
-}
+VL53L0X_Dev_t devs[] = {
+	{.I2cDevAddr = addrs[0], .hi2c = &hi2c1},
+	{.I2cDevAddr = addrs[1], .hi2c = &hi2c1},
+	{.I2cDevAddr = addrs[2], .hi2c = &hi2c1},
+	{.I2cDevAddr = addrs[3], .hi2c = &hi2c1},
+	{.I2cDevAddr = addrs[4], .hi2c = &hi2c1},
+	{.I2cDevAddr = addrs[5], .hi2c = &hi2c1},
+};
 
 void tofArraySetup() 
 {
@@ -260,12 +258,10 @@ void tofArraySetup()
 		
 		Status = VL53L0X_SetDeviceAddress(&dev, addrs[i]);
 		//assert_param(Status == VL53L0X_ERROR_NONE);
-
 	}
 
 	// confirm setup
-	for (int i=0; i<6; i++)
-	{
+	for (int i=0; i<6; i++)	{
 		assert_param(HAL_I2C_IsDeviceReady(&hi2c1, addrs[i], 2, 2) == HAL_OK);
 	}
 
@@ -283,9 +279,11 @@ void MPU6050_test()
 	// }
 }
 
+#define PWM_MAX (100)
 void M1change(int32_t speed) 
 {
-	assert_param(speed <= 10000 && speed >= -10000); // TODO: change to constant symbol
+	assert_param(speed <= PWM_MAX && speed >= -PWM_MAX); // TODO: change to constant symbol
+	// if (abs(speed)<PWM_MAX/25) speed = 0;
 	HAL_GPIO_WritePin(MA1_GPIO_Port, MA1_Pin, speed < 0);
 	HAL_GPIO_WritePin(MB1_GPIO_Port, MB1_Pin, speed > 0);
 
@@ -294,7 +292,8 @@ void M1change(int32_t speed)
 
 void M2change(int32_t speed) 
 {
-	assert_param(speed <= 10000 && speed >= -10000); // TODO: change to constant symbol
+	assert_param(speed <= PWM_MAX && speed >= -PWM_MAX); // TODO: change to constant symbol
+	// if (abs(speed)<PWM_MAX/25) speed = 0;
 	HAL_GPIO_WritePin(MA2_GPIO_Port, MA2_Pin, speed < 0);
 	HAL_GPIO_WritePin(MB2_GPIO_Port, MB2_Pin, speed > 0);
 
@@ -306,22 +305,68 @@ void test_motors()
 	while(1) {
 		int16_t v10 = (TIM1->CNT);
 		int16_t v20 = (TIM3->CNT);
-		M1change(-10000);
-		M2change(-10000);
+		M1change(-PWM_MAX);
+		M2change(-PWM_MAX);
 		HAL_Delay(2000);
-		M1change(-5000);
-		M2change(-5000);
+		M1change(-PWM_MAX/2);
+		M2change(-PWM_MAX/2);
 		HAL_Delay(2000);
 		M1change(0);
 		M2change(0);
 		HAL_Delay(2000);
-		M1change(5000);
-		M2change(5000);
+		M1change(PWM_MAX/2);
+		M2change(PWM_MAX/2);
 		HAL_Delay(2000);
-		M1change(10000);
-		M2change(10000);
+		M1change(PWM_MAX);
+		M2change(PWM_MAX);
 		HAL_Delay(2000);
 	}
+}
+
+void i2cscan() {
+	int r;
+	for (int i=1; i<127; i++) {
+		r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 2, 2);
+		HAL_Delay(5);
+	}
+}
+
+#define ENPOSM1() (TIM1->CNT)
+#define ENPOSM2() (TIM3->CNT)
+#define M_KP 6.5
+#define M_KD 0.005
+#define M_KI 0.00000
+
+double M1_pid(double expos) { // return speed
+	static double err0, i;
+	double pos = ENPOSM1();
+
+	double err = expos - pos;
+	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
+
+	err0 = pos;
+	i += err;
+
+	// XXX:
+	if (PID > PWM_MAX) return PWM_MAX;
+	else if (PID < -PWM_MAX) return -PWM_MAX;
+	else return PID;
+}
+
+double M2_pid(double expos) { // return speed
+	static double err0, i;
+	double pos = ENPOSM2();
+	
+	double err = expos - pos;
+	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
+
+	err0 = pos;
+	i += err;
+
+	// XXX:
+	if (PID > PWM_MAX) return PWM_MAX;
+	else if (PID < -PWM_MAX) return -PWM_MAX;
+	else return PID;
 }
 	
 /* USER CODE END 0 */
@@ -368,26 +413,53 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
 	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+
 	tofArraySetup();
-	//test_tof();
-	MPU6050_test();
-	test_motors();
+	// rangingTest(&devs[0]);
+	// MPU6050_test();
+	// test_motors();
+
+	tof_setup_start(&devs[0], VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
+	//test_motors();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+	while (1) {
     /* USER CODE END WHILE */
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
-		int r;
-		for (int i=1; i<127; i++) {
-			r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 2, 2);
-			HAL_Delay(5);
-		}
-  }
+		// VL53L0X_RangingMeasurementData_t data;
+		// wait_getData(&devs[0], &data);
+		// uint16_t d = data.RangeMilliMeter;
+		// if (d > 8000) continue;
+		// if (data.RangeStatus != 0) continue;
+		// if (d <= 120) {
+		int16_t v10 = (TIM1->CNT);
+		int16_t v20 = (TIM3->CNT);
+		// 	M1change(0);
+		// 	M2change(0);
+		// 	while(1);
+		// }
+		
+		int16_t v1 = v10;
+		int16_t v2 = v20;
+		// M1change(5000);
+		// M2change(5000);
+		M1change(M1_pid(5000));
+		M2change(M2_pid(5000));
+		// if (v10 >= 5000) {
+		// 	M1change(0);
+		// 	M2change(0);
+		// 	HAL_Delay(2000);
+		// 	int16_t v10 = (TIM1->CNT);
+		// 	int16_t v20 = (TIM3->CNT);
+		// 	while(1);
+		// }
+		// HAL_Delay(100);
+  	}
   /* USER CODE END 3 */
 }
 
