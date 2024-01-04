@@ -271,22 +271,16 @@ void tofArraySetup()
 
 }
 
+MPU6050_t mpu;
+int isMpuInit = 0;
 void MPU6050_test() 
 {
-	MPU6050_t mpu;
 	while(MPU6050_Init(&hi2c1) == 1);
 	MPU6050_EnInt(&hi2c1);
-	while(1) {
-		MPU6050_Read_All(&hi2c1,&mpu);
-		// mpu.KalmanAngleX
-		HAL_Delay(10);
-		MPU6050_Read_All(&hi2c1,&mpu);
-		HAL_Delay(10);
-		MPU6050_Read_All(&hi2c1,&mpu);
-		HAL_Delay(10);
-		MPU6050_Read_All(&hi2c1,&mpu);
-		HAL_Delay(10);
-	}
+	isMpuInit = 1;
+	// while(1) {
+	// 	HAL_Delay(50);
+	// }
 }
 
 void M1change(int32_t speed) 
@@ -374,10 +368,10 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
 	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
-	//test_motors();
 	tofArraySetup();
 	//test_tof();
 	MPU6050_test();
+	test_motors();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -443,7 +437,16 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) 
+{
+	if (GPIO_Pin == MPU6050_INT_Pin) {
+		return;
+		if (isMpuInit) {
+			MPU6050_Read_All(&hi2c1,&mpu);
+			
+		}
+	}
+}
 /* USER CODE END 4 */
 
 /**
