@@ -351,8 +351,8 @@ void i2cscan() {
 	}
 }
 
-#define EN1_RESET() {TIM1->CNT = 0;}
-#define EN2_RESET() {TIM3->CNT = 0;}
+#define EN1_RESET() {TIM1->CNT = 0; M1err = 0;}
+#define EN2_RESET() {TIM3->CNT = 0; M2err = 0;}
 #define ENPOSM1() ((int16_t)(TIM1->CNT))
 #define ENPOSM2() ((int16_t)(TIM3->CNT))
 #define M_KP 7.0
@@ -557,32 +557,59 @@ void turnLeft()
 }
 void turnRight()
 {
-	Mrotate(-90, PWM_MAX/2);
+	Mrotate(-90, PWM_MAX);
 }
 #define FORW_SPEED (PWM_MAX/2)
-void run_straight() {
-	int instate = 0;
+enum STATES {
+	POST_DETECTED = 0,
+	FRONT_WALL_DETECTED
+};
+int run_straight() {
 	while (1) {
+		tofReadFronts();
+		if ((tofmeasr[0].RangeMilliMeter+tofmeasr[5].RangeMilliMeter)/2 <= 100+R_OFFS) {// TODO: constant name
+			M1change(0);
+			M2change(0);
+			return FRONT_WALL_DETECTED;
+		}
 		for (int i=0; i<10; i++) {
 			wait_getData(&devs[4], &tofmeasr[4]);
-			if (tofmeasr[4].RangeMilliMeter >(420) ||
+			if (tofmeasr[4].RangeMilliMeter >(250) ||
 				tofmeasr[4].RangeStatus != 0) {
 				M1change(0);
 				M2change(0);
-				if (i>8) return;
+				if (i>8) return POST_DETECTED;
 				else continue;
 			}
 			break;
 		}
-
-		double pwm = RightTrack_pid(150);
-		double m1 = LIMIT_OUTPUT(-pwm+FORW_SPEED);
-		double m2 = LIMIT_OUTPUT(pwm+FORW_SPEED);
+		double pwm, m1, m2;
+		pwm = RightTrack_pid(150);
+			double speed1 = R1_pid(70.0+R_OFFS);
+			double speed2 = R2_pid(70.0+R_OFFS);
+			
+			m1 = LIMIT_OUTPUT(-pwm*0.5+speed1*FORW_SPEED/PWM_MAX);
+			m2 = LIMIT_OUTPUT(pwm*0.5+speed2*FORW_SPEED/PWM_MAX);
 		M1change(m1);
 		M2change(m2);
 	}
 }
 
+void MS_moveTo(int16_t en)
+{
+	EN1_RESET();
+	EN2_RESET();
+	while(1) {
+		M1change(M1_pid(en)*0.5);
+		M2change(M2_pid(en)*0.5);
+		if (MS_isCompleted()) {
+			M1change(0);
+			M2change(0);
+			return;
+		}
+	}
+}
+#define DELAY() HAL_Delay(100)
 	
 /* USER CODE END 0 */
 
@@ -639,7 +666,7 @@ int main(void)
 
 	// M1change(PWM_MAX/4);
 	// M2change(PWM_MAX/4);
-
+	int ret;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -648,11 +675,32 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		front_calib_blocking();
-		tofReadSides();
-		turn180(tofmeasr[2].RangeMilliMeter > tofmeasr[3].RangeMilliMeter);
-		run_straight();
-		while(1);
+		ret = run_straight();
+		DELAY();
+		if (ret == FRONT_WALL_DETECTED) {
+			// while(1);
+			front_calib_blocking();
+			DELAY();
+			tofReadSides();
+			if (tofmeasr[2].RangeMilliMeter > 400) {
+				turnLeft();
+				DELAY();
+				continue;
+			}
+			turn180(tofmeasr[2].RangeMilliMeter > tofmeasr[3].RangeMilliMeter);
+			DELAY();
+			continue;
+		} else if (ret == POST_DETECTED) {
+			MS_moveTo(cm2en(15));
+			tofReadFronts();
+			DELAY();
+			if ((tofmeasr[0].RangeMilliMeter + tofmeasr[5].RangeMilliMeter)/2 < (100 + R_OFFS))
+				continue;
+			turnRight();
+			DELAY();
+		}
+		// run_straight();
+		// while(1);
 		
   	}
   /* USER CODE END 3 */
