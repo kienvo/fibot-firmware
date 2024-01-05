@@ -130,8 +130,8 @@ VL53L0X_Error tof_setup_start(VL53L0X_Dev_t *dev, VL53L0X_DeviceModes mode)
 	
 	assert_param(HAL_I2C_IsDeviceReady(&hi2c1, dev->I2cDevAddr, 2, 2) == HAL_OK);
 
-	Status = VL53L0X_GetDeviceInfo(dev, &info);
-    assert_param(Status == VL53L0X_ERROR_NONE);
+	// Status = VL53L0X_GetDeviceInfo(dev, &info);
+    // assert_param(Status == VL53L0X_ERROR_NONE);
 
 	Status = VL53L0X_RdWord(dev, VL53L0X_REG_IDENTIFICATION_MODEL_ID, (uint16_t *) &vl53l0x_id);
     assert_param(Status == VL53L0X_ERROR_NONE);
@@ -265,6 +265,11 @@ void tofArraySetup()
 	for (int i=0; i<6; i++)	{
 		assert_param(HAL_I2C_IsDeviceReady(&hi2c1, addrs[i], 2, 2) == HAL_OK);
 	}
+	for (int i=0; i<6; i++)	{
+		VL53L0X_PollingDelay(&devs[i]);
+		tof_setup_start(&devs[i], VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
+	}
+
 
 }
 
@@ -332,15 +337,15 @@ void i2cscan() {
 	}
 }
 
-#define ENPOSM1() (TIM1->CNT)
-#define ENPOSM2() (TIM3->CNT)
+#define ENPOSM1() ((int16_t)(TIM1->CNT))
+#define ENPOSM2() ((int16_t)(TIM3->CNT))
 #define M_KP 3.0
 #define M_KD 1.0E300
 #define M_KI 0.000000
 
 double M1_pid(double expos) { // return speed
 	static double err0, i;
-	double pos = (int16_t)ENPOSM1();
+	double pos = ENPOSM1();
 
 	double err = expos - pos;
 	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
@@ -359,7 +364,7 @@ double M1_pid(double expos) { // return speed
 
 double M2_pid(double expos) { // return speed
 	static double err0, i;
-	double pos = (int16_t)ENPOSM2();
+	double pos = ENPOSM2();
 	
 	double err = expos - pos;
 	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
@@ -391,7 +396,7 @@ void Ms_smooth_corners() {
 	while(1);
 }
 
-#define en_per_cm ((5000.0/0.685)/100.0) // cm
+#define en_per_cm ((5000.0/0.640)/100.0) // cm
 #define center2wheelcenter (10.9/2.0)
 #define circumPath (center2wheelcenter*2.0*M_PI)
 
@@ -404,14 +409,22 @@ double en2cm(double en)
 	return en/en_per_cm;
 }
 
-void Mrotate(double degree) 
+void Mrotate(double degree, uint16_t pwm_limit) 
 {
-	double radian = degree/360.0;
+	double radian =2*M_PI *degree/360.0;
 	double path = center2wheelcenter*radian;
 	int16_t en = (int16_t)cm2en(path);
 	while(1) {
-		M1change(M1_pid(en));
-		M2change(M2_pid(-en));
+		M1change(M1_pid(en)/PWM_MAX*pwm_limit);
+		M2change(M2_pid(-en)/PWM_MAX*pwm_limit);
+	}
+}
+
+void test_pid() 
+{
+	while (1) {
+		M1change(M1_pid(5000));
+		M2change(M2_pid(5000));
 	}
 }
 	
@@ -463,11 +476,10 @@ int main(void)
 	tofArraySetup();
 	// rangingTest(&devs[0]);
 	// MPU6050_test();
-	// test_motors();
+	//test_pid();
 
-	tof_setup_start(&devs[0], VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
 	//test_motors();
-	//Mrotate(180);
+	Mrotate(180+20, PWM_MAX/2);
 
   /* USER CODE END 2 */
 
@@ -478,34 +490,19 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
-		// VL53L0X_RangingMeasurementData_t data;
-		// wait_getData(&devs[0], &data);
-		// uint16_t d = data.RangeMilliMeter;
-		// if (d > 8000) continue;
-		// if (data.RangeStatus != 0) continue;
-		// if (d <= 120) {
-		int16_t v10 = (TIM1->CNT);
-		int16_t v20 = (TIM3->CNT);
-		// 	M1change(0);
-		// 	M2change(0);
-		// 	while(1);
-		// }
+		VL53L0X_RangingMeasurementData_t data;
+		wait_getData(&devs[0], &data);
+		uint16_t d = data.RangeMilliMeter;
+		if (d > 8000) continue;
+		if (data.RangeStatus != 0) continue;
+		if (d <= 120) {
+			int16_t v10 = (TIM1->CNT);
+			int16_t v20 = (TIM3->CNT);
+			M1change(0);
+			M2change(0);
+			while(1);
+		}
 		
-		int16_t v1 = v10;
-		int16_t v2 = v20;
-		// M1change(5000);
-		// M2change(5000);
-		M1change(M1_pid(5000));
-		M2change(M2_pid(5000));
-		// if (v10 >= 5000) {
-		// 	M1change(0);
-		// 	M2change(0);
-		// 	HAL_Delay(2000);
-		// 	int16_t v10 = (TIM1->CNT);
-		// 	int16_t v20 = (TIM3->CNT);
-		// 	while(1);
-		// }
-		// HAL_Delay(100);
   	}
   /* USER CODE END 3 */
 }
