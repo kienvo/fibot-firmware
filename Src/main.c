@@ -479,7 +479,9 @@ int main(void)
 	//test_pid();
 
 	//test_motors();
-	Mrotate(180+20, PWM_MAX/2);
+	// Mrotate(180+20, PWM_MAX/2);
+	Mrotate(-90, PWM_MAX/2);
+	// Mrotate(90, PWM_MAX/2);
 
   /* USER CODE END 2 */
 
