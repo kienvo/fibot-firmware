@@ -126,8 +126,8 @@ VL53L0X_Error tof_setup_start(VL53L0X_Dev_t *dev, VL53L0X_DeviceModes mode)
 	
 	assert_param(HAL_I2C_IsDeviceReady(&hi2c1, dev->I2cDevAddr, 2, 2) == HAL_OK);
 
-	// Status = VL53L0X_GetDeviceInfo(dev, &info);
-    // assert_param(Status == VL53L0X_ERROR_NONE);
+	Status = VL53L0X_GetDeviceInfo(dev, &info);
+    assert_param(Status == VL53L0X_ERROR_NONE);
 
 	Status = VL53L0X_RdWord(dev, VL53L0X_REG_IDENTIFICATION_MODEL_ID, (uint16_t *) &vl53l0x_id);
     assert_param(Status == VL53L0X_ERROR_NONE);
@@ -171,9 +171,6 @@ VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev)
     VL53L0X_Error Status = VL53L0X_ERROR_NONE;
 	
 	tof_setup_start(dev, VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
-
-	uint32_t measurement;
-	uint32_t no_of_measurements = 100000;
 
 	while (1) {
 		wait_getData(dev, &data);
@@ -423,6 +420,60 @@ void test_pid()
 		M2change(M2_pid(5000));
 	}
 }
+VL53L0X_RangingMeasurementData_t tofmeasr[6];
+void tofArrayReadAll()
+{
+	for (int i=0; i<6; i++) {
+		wait_getData(&devs[i], &tofmeasr[i]);
+	}
+
+}
+
+#define RANGE2() (tofmeasr[0].RangeMilliMeter)
+#define RANGE1() (tofmeasr[5].RangeMilliMeter)
+#define R_KP (0.5)
+#define R_KD (1.5)
+#define R_KI (0.000000)
+#define R_OFFS (40.0)
+double R1_pid(double exrange) { // return speed
+	static double err0, i;
+	double pos = RANGE1();
+	
+	double err = exrange - pos;
+	double PID = R_KP*err + R_KD*(err - err0) + R_KI*i;
+	PID = -PID;
+
+	err0 = err;
+	i += err;
+
+	// XXX:
+	if (PID > PWM_MAX) 
+		return PWM_MAX;
+	else if (PID < -PWM_MAX) 
+		return -PWM_MAX;
+	else 
+		return PID;
+}
+double R2_pid(double exrange) { // return speed
+	static double err0, i;
+	double pos = RANGE2();
+	
+	double err = exrange - pos;
+	double PID = R_KP*err + R_KD*(err - err0) + R_KI*i;
+	PID = -PID;
+
+	err0 = err;
+	i += err;
+
+	// XXX:
+	if (PID > PWM_MAX) 
+		return PWM_MAX;
+	else if (PID < -PWM_MAX) 
+		return -PWM_MAX;
+	else 
+		return PID;
+}
+
 	
 /* USER CODE END 0 */
 
@@ -468,14 +519,17 @@ int main(void)
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 
 	tofArraySetup();
-	// rangingTest(&devs[0]);
+	//rangingTest(&devs[0]);
 	// MPU6050_test();
 	//test_pid();
 
 	//test_motors();
 	// Mrotate(180+20, PWM_MAX/2);
-	Mrotate(-90, PWM_MAX/2);
+	// Mrotate(-90, PWM_MAX/2);
 	// Mrotate(90, PWM_MAX/2);
+
+	// M1change(PWM_MAX/4);
+	// M2change(PWM_MAX/4);
 
   /* USER CODE END 2 */
 
@@ -485,18 +539,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		VL53L0X_RangingMeasurementData_t data;
-		wait_getData(&devs[0], &data);
-		uint16_t d = data.RangeMilliMeter;
-		if (d > 8000) continue;
-		if (data.RangeStatus != 0) continue;
-		if (d <= 120) {
-			int16_t v10 = (TIM1->CNT);
-			int16_t v20 = (TIM3->CNT);
-			M1change(0);
-			M2change(0);
-			while(1);
-		}
+		tofArrayReadAll();
+		M1change(R1_pid(100.0+R_OFFS)*0.5);
+		M2change(R2_pid(100.0+R_OFFS)*0.5);
 		
   	}
   /* USER CODE END 3 */
