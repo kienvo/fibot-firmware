@@ -28,6 +28,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "mpu6050.h"
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -333,40 +334,85 @@ void i2cscan() {
 
 #define ENPOSM1() (TIM1->CNT)
 #define ENPOSM2() (TIM3->CNT)
-#define M_KP 6.5
-#define M_KD 0.005
-#define M_KI 0.00000
+#define M_KP 3.0
+#define M_KD 1.0E300
+#define M_KI 0.000000
 
 double M1_pid(double expos) { // return speed
 	static double err0, i;
-	double pos = ENPOSM1();
+	double pos = (int16_t)ENPOSM1();
 
 	double err = expos - pos;
 	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
 
-	err0 = pos;
+	err0 = err;
 	i += err;
 
 	// XXX:
-	if (PID > PWM_MAX) return PWM_MAX;
-	else if (PID < -PWM_MAX) return -PWM_MAX;
-	else return PID;
+	if (PID > PWM_MAX) 
+		return PWM_MAX;
+	else if (PID < -PWM_MAX) 
+		return -PWM_MAX;
+	else 
+		return PID;
 }
 
 double M2_pid(double expos) { // return speed
 	static double err0, i;
-	double pos = ENPOSM2();
+	double pos = (int16_t)ENPOSM2();
 	
 	double err = expos - pos;
 	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
 
-	err0 = pos;
+	err0 = err;
 	i += err;
 
 	// XXX:
-	if (PID > PWM_MAX) return PWM_MAX;
-	else if (PID < -PWM_MAX) return -PWM_MAX;
-	else return PID;
+	if (PID > PWM_MAX) 
+		return PWM_MAX;
+	else if (PID < -PWM_MAX) 
+		return -PWM_MAX;
+	else 
+		return PID;
+}
+
+void Ms_smooth_corners() {
+	// M1change(PWM_MAX/4)	;
+	// M2change(PWM_MAX/4)	;
+	// HAL_Delay(500);
+	M1change(PWM_MAX/4+PWM_MAX/8);
+	M2change(PWM_MAX/4-PWM_MAX/8);
+	HAL_Delay(1000);
+	// M1change(PWM_MAX/4)	;
+	// M2change(PWM_MAX/4)	;
+	// HAL_Delay(500);
+	M1change(0)	;
+	M2change(0)	;
+	while(1);
+}
+
+#define en_per_cm ((5000.0/0.685)/100.0) // cm
+#define center2wheelcenter (10.9/2.0)
+#define circumPath (center2wheelcenter*2.0*M_PI)
+
+double cm2en(double cm)
+{
+	return cm*en_per_cm;
+}
+double en2cm(double en)
+{
+	return en/en_per_cm;
+}
+
+void Mrotate(double degree) 
+{
+	double radian = degree/360.0;
+	double path = center2wheelcenter*radian;
+	int16_t en = (int16_t)cm2en(path);
+	while(1) {
+		M1change(M1_pid(en));
+		M2change(M2_pid(-en));
+	}
 }
 	
 /* USER CODE END 0 */
@@ -421,6 +467,7 @@ int main(void)
 
 	tof_setup_start(&devs[0], VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
 	//test_motors();
+	//Mrotate(180);
 
   /* USER CODE END 2 */
 
