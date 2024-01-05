@@ -279,6 +279,10 @@ void MPU6050_test()
 }
 
 #define PWM_MAX (100)
+#define LIMIT_OUTPUT(x) \
+	(x > PWM_MAX)?   PWM_MAX:	\
+	(x < -PWM_MAX)? -PWM_MAX:	\
+	x
 void M1change(int32_t speed) 
 {
 	assert_param(speed <= PWM_MAX && speed >= -PWM_MAX); // TODO: change to constant symbol
@@ -297,6 +301,23 @@ void M2change(int32_t speed)
 	HAL_GPIO_WritePin(MB2_GPIO_Port, MB2_Pin, speed > 0);
 
 	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, abs(speed));
+}
+
+void M1_accel(double pwm)
+{
+	static double speed;
+	speed += pwm;
+	if (speed > PWM_MAX) speed = PWM_MAX;
+	else if (speed < -PWM_MAX) speed = -PWM_MAX;
+	M1change(speed);
+}
+void M2_accel(double pwm)
+{
+	static double speed;
+	speed += pwm;
+	if (speed > PWM_MAX) speed = PWM_MAX;
+	else if (speed < -PWM_MAX) speed = -PWM_MAX;
+	M2change(speed);
 }
 
 void test_motors() 
@@ -330,29 +351,30 @@ void i2cscan() {
 	}
 }
 
+#define EN1_RESET() {TIM1->CNT = 0;}
+#define EN2_RESET() {TIM3->CNT = 0;}
 #define ENPOSM1() ((int16_t)(TIM1->CNT))
 #define ENPOSM2() ((int16_t)(TIM3->CNT))
-#define M_KP 3.0
-#define M_KD 1.0E300
+#define M_KP 7.0
+#define M_KD 10.0
 #define M_KI 0.000000
+#define M_thrsh (20.0) // mm
+#define M_isCompleted(err) (abs(err) < M_thrsh)
+double M1err = 0;
+double M2err = 0;
+#define MS_isCompleted() M_isCompleted(M1err) && M_isCompleted(M2err)
 
 double M1_pid(double expos) { // return speed
-	static double err0, i;
+	static double i;
 	double pos = ENPOSM1();
 
 	double err = expos - pos;
-	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
+	double PID = M_KP*err + M_KD*(err - M1err) + M_KI*i;
 
-	err0 = err;
+	M1err = err;
 	i += err;
 
-	// XXX:
-	if (PID > PWM_MAX) 
-		return PWM_MAX;
-	else if (PID < -PWM_MAX) 
-		return -PWM_MAX;
-	else 
-		return PID;
+	return LIMIT_OUTPUT(PID);
 }
 
 double M2_pid(double expos) { // return speed
@@ -360,18 +382,12 @@ double M2_pid(double expos) { // return speed
 	double pos = ENPOSM2();
 	
 	double err = expos - pos;
-	double PID = M_KP*err + M_KD*(err - err0) + M_KI*i;
+	double PID = M_KP*err + M_KD*(err - M1err) + M_KI*i;
 
-	err0 = err;
+	M1err = err;
 	i += err;
 
-	// XXX:
-	if (PID > PWM_MAX) 
-		return PWM_MAX;
-	else if (PID < -PWM_MAX) 
-		return -PWM_MAX;
-	else 
-		return PID;
+	return LIMIT_OUTPUT(PID);
 }
 
 void Ms_smooth_corners() {
@@ -404,12 +420,21 @@ double en2cm(double en)
 
 void Mrotate(double degree, uint16_t pwm_limit) 
 {
+	EN1_RESET();
+	EN2_RESET();
 	double radian =2*M_PI *degree/360.0;
 	double path = center2wheelcenter*radian;
 	int16_t en = (int16_t)cm2en(path);
 	while(1) {
-		M1change(M1_pid(en)/PWM_MAX*pwm_limit);
-		M2change(M2_pid(-en)/PWM_MAX*pwm_limit);
+		double m1 = LIMIT_OUTPUT(M1_pid(en)/PWM_MAX*pwm_limit);
+		double m2 = LIMIT_OUTPUT(M2_pid(-en)/PWM_MAX*pwm_limit);
+		M1change(m1);
+		M2change(m2);
+		if (MS_isCompleted()) {
+			M1change(0);
+			M2change(0);
+			break;
+		}
 	}
 }
 
@@ -429,49 +454,133 @@ void tofArrayReadAll()
 
 }
 
+void tofReadFronts()
+{
+	wait_getData(&devs[0], &tofmeasr[0]);
+	wait_getData(&devs[5], &tofmeasr[5]);
+}
+void tofReadSides()
+{
+	wait_getData(&devs[2], &tofmeasr[2]);
+	wait_getData(&devs[3], &tofmeasr[3]);
+}
+
 #define RANGE2() (tofmeasr[0].RangeMilliMeter)
 #define RANGE1() (tofmeasr[5].RangeMilliMeter)
 #define R_KP (0.5)
 #define R_KD (1.5)
 #define R_KI (0.000000)
-#define R_OFFS (40.0)
+#define R_OFFS (40.0)  // mm
+#define R_thrsh (10.0) // mm
+double R1err = 0;
+double R2err = 0;
+#define R_isCompleted(err) (abs(err) < R_thrsh)
+#define RS_isCompleted() (R_isCompleted(R1err) && R_isCompleted(R2err))
+
 double R1_pid(double exrange) { // return speed
-	static double err0, i;
+	static double i;
 	double pos = RANGE1();
 	
 	double err = exrange - pos;
-	double PID = R_KP*err + R_KD*(err - err0) + R_KI*i;
+	double PID = R_KP*err + R_KD*(err - R1err) + R_KI*i;
 	PID = -PID;
 
-	err0 = err;
+	R1err = err;
 	i += err;
 
-	// XXX:
-	if (PID > PWM_MAX) 
-		return PWM_MAX;
-	else if (PID < -PWM_MAX) 
-		return -PWM_MAX;
-	else 
-		return PID;
+	return LIMIT_OUTPUT(PID);
 }
 double R2_pid(double exrange) { // return speed
-	static double err0, i;
+	static double i;
 	double pos = RANGE2();
 	
 	double err = exrange - pos;
-	double PID = R_KP*err + R_KD*(err - err0) + R_KI*i;
+	double PID = R_KP*err + R_KD*(err - R2err) + R_KI*i;
+	PID = -PID;
+
+	R2err = err;
+	i += err;
+
+	return LIMIT_OUTPUT(PID);
+}
+
+#define RT_KP (0.4)
+#define RT_KD (0.6)
+#define RT_KI (0.000000)
+double RightTrack_pid(double exrange) { // return speed
+	static double err0, i;
+	double pos = (tofmeasr[4].RangeMilliMeter);
+	
+	double err = exrange - pos;
+	double PID = RT_KP*err + RT_KD*(err - err0) + RT_KI*i;
 	PID = -PID;
 
 	err0 = err;
 	i += err;
 
-	// XXX:
-	if (PID > PWM_MAX) 
-		return PWM_MAX;
-	else if (PID < -PWM_MAX) 
-		return -PWM_MAX;
-	else 
-		return PID;
+	return LIMIT_OUTPUT(PID);
+}
+
+void front_calib_blocking()
+{	
+	while(1) {
+		tofReadFronts();
+		M1change(R1_pid(70.0+R_OFFS));
+		M2change(R2_pid(70.0+R_OFFS));
+		if (RS_isCompleted()) {
+			M1change(0);
+			M2change(0);
+			break;
+		}
+	}
+}
+
+void turn180(int side)
+{
+	if (side) // == left
+	{
+		turnLeft();
+		front_calib_blocking();
+		turnLeft();
+	}
+	else  // == right
+	{
+		turnRight();
+		front_calib_blocking();
+		turnRight();
+	}
+}
+
+void turnLeft()
+{
+	Mrotate(90, PWM_MAX);
+}
+void turnRight()
+{
+	Mrotate(-90, PWM_MAX/2);
+}
+#define FORW_SPEED (PWM_MAX/2)
+void run_straight() {
+	int instate = 0;
+	while (1) {
+		for (int i=0; i<10; i++) {
+			wait_getData(&devs[4], &tofmeasr[4]);
+			if (tofmeasr[4].RangeMilliMeter >(420) ||
+				tofmeasr[4].RangeStatus != 0) {
+				M1change(0);
+				M2change(0);
+				if (i>8) return;
+				else continue;
+			}
+			break;
+		}
+
+		double pwm = RightTrack_pid(150);
+		double m1 = LIMIT_OUTPUT(-pwm+FORW_SPEED);
+		double m2 = LIMIT_OUTPUT(pwm+FORW_SPEED);
+		M1change(m1);
+		M2change(m2);
+	}
 }
 
 	
@@ -539,9 +648,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		tofArrayReadAll();
-		M1change(R1_pid(100.0+R_OFFS)*0.5);
-		M2change(R2_pid(100.0+R_OFFS)*0.5);
+		front_calib_blocking();
+		tofReadSides();
+		turn180(tofmeasr[2].RangeMilliMeter > tofmeasr[3].RangeMilliMeter);
+		run_straight();
+		while(1);
 		
   	}
   /* USER CODE END 3 */
@@ -614,6 +725,8 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
 	HAL_GPIO_WritePin(LD5_GPIO_Port, LD5_Pin, 1);
+	M1change(0);
+	M2change(0);
   __disable_irq();
   while (1)
   {
