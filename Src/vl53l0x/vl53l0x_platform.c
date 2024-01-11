@@ -26,7 +26,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
-#define I2C_TIME_OUT_BASE   10
+#define I2C_TIME_OUT_BASE   2
 #define I2C_TIME_OUT_BYTE   1
 
 #define VL53L0X_OsDelay(...) {}

@@ -113,6 +113,23 @@ VL53L0X_Error WaitStopCompleted(VL53L0X_DEV Dev) {
     return Status;
 }
 
+void tofHighSpeedProfile(VL53L0X_Dev_t *dev)
+{
+	VL53L0X_Error Status;
+	Status = VL53L0X_SetLimitCheckValue(dev,
+	VL53L0X_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE,
+	(FixPoint1616_t)(0.25*65536));
+	assert_param(Status == VL53L0X_ERROR_NONE);
+	
+	Status = VL53L0X_SetLimitCheckValue(dev,
+	VL53L0X_CHECKENABLE_SIGMA_FINAL_RANGE,
+	(FixPoint1616_t)(32*65536));
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	Status = VL53L0X_SetMeasurementTimingBudgetMicroSeconds(dev, 20000);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+}
+
 VL53L0X_Error tof_setup_start(VL53L0X_Dev_t *dev, VL53L0X_DeviceModes mode)
 {
     uint8_t VhvSettings;
@@ -151,20 +168,28 @@ VL53L0X_Error tof_setup_start(VL53L0X_Dev_t *dev, VL53L0X_DeviceModes mode)
 	Status = VL53L0X_SetDeviceMode(dev, mode); // Setup in single ranging mode
     assert_param(Status == VL53L0X_ERROR_NONE);
 
+	//tofHighSpeedProfile(dev);
+
 	Status = VL53L0X_StartMeasurement(dev);
     assert_param(Status == VL53L0X_ERROR_NONE);
 }
-void wait_getData(VL53L0X_Dev_t *dev, VL53L0X_RangingMeasurementData_t   *data) {
-    VL53L0X_Error Status = VL53L0X_ERROR_NONE;
-	Status = WaitMeasurementDataReady(dev);
-	assert_param(Status == VL53L0X_ERROR_NONE);
 
-	Status = VL53L0X_GetRangingMeasurementData(dev, data);
+void tof_getData(VL53L0X_Dev_t *dev, VL53L0X_RangingMeasurementData_t   *data)
+{
+	VL53L0X_Error Status = VL53L0X_GetRangingMeasurementData(dev, data);
 	assert_param(Status == VL53L0X_ERROR_NONE);
 
 	// Clear the interrupt
 	VL53L0X_ClearInterruptMask(dev, VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
 }
+
+void wait_getData(VL53L0X_Dev_t *dev, VL53L0X_RangingMeasurementData_t   *data) {
+    VL53L0X_Error Status = WaitMeasurementDataReady(dev);
+	assert_param(Status == VL53L0X_ERROR_NONE);
+
+	tof_getData(dev, data);
+}
+
 VL53L0X_Error rangingTest(VL53L0X_Dev_t *dev) 
 {
     VL53L0X_RangingMeasurementData_t    data;
@@ -236,6 +261,10 @@ VL53L0X_Dev_t devs[] = {
 	{.I2cDevAddr = addrs[5], .hi2c = &hi2c1},
 };
 
+int tof_AllInitialized = 0;
+VL53L0X_RangingMeasurementData_t tofmeasr[6];
+
+
 void tofArraySetup() 
 {
 	VL53L0X_Dev_t dev = {
@@ -262,7 +291,11 @@ void tofArraySetup()
 		VL53L0X_PollingDelay(&devs[i]);
 		tof_setup_start(&devs[i], VL53L0X_DEVICEMODE_CONTINUOUS_RANGING);
 	}
-
+	tof_AllInitialized = 1;
+	for (int i=0; i<6; i++) {
+		VL53L0X_ClearInterruptMask(&devs[i], VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+		devs[i].isInitialized = 1;
+	}
 
 }
 
@@ -278,7 +311,7 @@ void MPU6050_test()
 	// }
 }
 
-#define PWM_MAX (100)
+#define PWM_MAX (80)
 #define LIMIT_OUTPUT(x) \
 	(x > PWM_MAX)?   PWM_MAX:	\
 	(x < -PWM_MAX)? -PWM_MAX:	\
@@ -358,7 +391,7 @@ void i2cscan() {
 #define M_KP 7.0
 #define M_KD 10.0
 #define M_KI 0.000000
-#define M_thrsh (20.0) // mm
+#define M_thrsh (25.0) // mm
 #define M_isCompleted(err) (abs(err) < M_thrsh)
 double M1err = 0;
 double M2err = 0;
@@ -445,7 +478,7 @@ void test_pid()
 		M2change(M2_pid(5000));
 	}
 }
-VL53L0X_RangingMeasurementData_t tofmeasr[6];
+
 void tofArrayReadAll()
 {
 	for (int i=0; i<6; i++) {
@@ -525,13 +558,22 @@ void front_calib_blocking()
 {	
 	while(1) {
 		tofReadFronts();
-		M1change(R1_pid(70.0+R_OFFS));
-		M2change(R2_pid(70.0+R_OFFS));
+		M1change(R1_pid(100.0+R_OFFS));
+		M2change(R2_pid(100.0+R_OFFS));
 		if (RS_isCompleted()) {
 			M1change(0);
 			M2change(0);
 			break;
 		}
+	}
+}
+
+void sumo()
+{	
+	while(1) {
+		tofReadFronts();
+		M1change(R1_pid(-100));
+		M2change(R2_pid(-100));
 	}
 }
 
@@ -559,7 +601,7 @@ void turnRight()
 {
 	Mrotate(-90, PWM_MAX);
 }
-#define FORW_SPEED (PWM_MAX/2)
+#define FORW_SPEED (PWM_MAX/3)
 enum STATES {
 	POST_DETECTED = 0,
 	FRONT_WALL_DETECTED
@@ -567,41 +609,56 @@ enum STATES {
 int run_straight() {
 	while (1) {
 		tofReadFronts();
-		if ((tofmeasr[0].RangeMilliMeter+tofmeasr[5].RangeMilliMeter)/2 <= 100+R_OFFS) {// TODO: constant name
+		if ((tofmeasr[0].RangeMilliMeter+tofmeasr[5].RangeMilliMeter)/2 <= 200+R_OFFS) {// TODO: constant name
 			M1change(0);
 			M2change(0);
 			return FRONT_WALL_DETECTED;
 		}
-		for (int i=0; i<10; i++) {
+		for (int i=0; i<3; i++) {
 			wait_getData(&devs[4], &tofmeasr[4]);
 			if (tofmeasr[4].RangeMilliMeter >(250) ||
 				tofmeasr[4].RangeStatus != 0) {
 				M1change(0);
 				M2change(0);
-				if (i>8) return POST_DETECTED;
+				if (i>2) return POST_DETECTED;
 				else continue;
 			}
 			break;
 		}
+		wait_getData(&devs[1], &tofmeasr[1]);
+		
 		double pwm, m1, m2;
-		pwm = RightTrack_pid(150);
-			double speed1 = R1_pid(70.0+R_OFFS);
-			double speed2 = R2_pid(70.0+R_OFFS);
+		pwm = RightTrack_pid(tofmeasr[1].RangeMilliMeter);
 			
-			m1 = LIMIT_OUTPUT(-pwm*0.5+speed1*FORW_SPEED/PWM_MAX);
-			m2 = LIMIT_OUTPUT(pwm*0.5+speed2*FORW_SPEED/PWM_MAX);
+			m1 = LIMIT_OUTPUT(-pwm+FORW_SPEED);
+			m2 = LIMIT_OUTPUT(pwm+FORW_SPEED);
 		M1change(m1);
 		M2change(m2);
 	}
 }
 
-void MS_moveTo(int16_t en)
+void test_sensor() 
+{
+	while (1)
+	{
+		// tofArrayReadAll();
+		HAL_Delay(100);
+	}
+}
+
+void MS_moveTo(uint16_t exrange)
 {
 	EN1_RESET();
 	EN2_RESET();
 	while(1) {
-		M1change(M1_pid(en)*0.5);
-		M2change(M2_pid(en)*0.5);
+		M1change(0.4);
+		M2change(0.4);
+		wait_getData(&devs[4], &tofmeasr[4]);
+		if (tofmeasr[4].RangeMilliMeter <= exrange) {
+			M1change(0);
+			M2change(0);
+			return;
+		}
 		if (MS_isCompleted()) {
 			M1change(0);
 			M2change(0);
@@ -609,7 +666,7 @@ void MS_moveTo(int16_t en)
 		}
 	}
 }
-#define DELAY() HAL_Delay(100)
+#define DELAY() HAL_Delay(300)
 	
 /* USER CODE END 0 */
 
@@ -667,6 +724,8 @@ int main(void)
 	// M1change(PWM_MAX/4);
 	// M2change(PWM_MAX/4);
 	int ret;
+	test_sensor();
+	//sumo();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -682,7 +741,7 @@ int main(void)
 			front_calib_blocking();
 			DELAY();
 			tofReadSides();
-			if (tofmeasr[2].RangeMilliMeter > 400) {
+			if (tofmeasr[2].RangeMilliMeter > 300) {
 				turnLeft();
 				DELAY();
 				continue;
@@ -691,14 +750,16 @@ int main(void)
 			DELAY();
 			continue;
 		} else if (ret == POST_DETECTED) {
-			MS_moveTo(cm2en(15));
-			tofReadFronts();
+			MS_moveTo(160);
 			DELAY();
+			tofReadFronts();
 			if ((tofmeasr[0].RangeMilliMeter + tofmeasr[5].RangeMilliMeter)/2 < (100 + R_OFFS))
-				continue;
+				if (abs(tofmeasr[0].RangeMilliMeter - tofmeasr[5].RangeMilliMeter) < 50)
+					continue;
 			turnRight();
 			DELAY();
 		}
+
 		// run_straight();
 		// while(1);
 		
@@ -752,6 +813,14 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+const uint16_t INT_SEN_PINS[] = {
+	INT_SEN0_Pin,
+	INT_SEN1_Pin,
+	INT_SEN2_Pin,
+	INT_SEN3_Pin,
+	INT_SEN4_Pin,
+	INT_SEN5_Pin,
+};
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) 
 {
 	if (GPIO_Pin == MPU6050_INT_Pin) {
@@ -759,6 +828,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		if (isMpuInit) {
 			MPU6050_Read_All(&hi2c1,&mpu);
 			
+		}
+	}
+	if (tof_AllInitialized) {
+		for (int i=0; i<6; i++) {
+			if (GPIO_Pin == INT_SEN_PINS[i]) {
+				if (devs[i].isInitialized)
+					tof_getData(&devs[i], &tofmeasr[i]);
+			}
 		}
 	}
 }
@@ -775,6 +852,7 @@ void Error_Handler(void)
 	HAL_GPIO_WritePin(LD5_GPIO_Port, LD5_Pin, 1);
 	M1change(0);
 	M2change(0);
+	// HAL_NVIC_SystemReset();
   __disable_irq();
   while (1)
   {

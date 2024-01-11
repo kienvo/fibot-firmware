@@ -64,6 +64,7 @@ typedef struct {
     uint16_t  comms_speed_khz;           /*!< Comms speed [kHz] : typically 400kHz for I2C           */
 	
 	I2C_HandleTypeDef *hi2c;
+	int 	isInitialized;
 } VL53L0X_Dev_t;
 
 
