@@ -312,6 +312,10 @@ void MPU6050_test()
 }
 
 #define PWM_MAX (80)
+#define LIMIT_OUTPUT_TO(x, max) \
+	(x > max)?   max:	\
+	(x < -max)? -max:	\
+	x
 #define LIMIT_OUTPUT(x) \
 	(x > PWM_MAX)?   PWM_MAX:	\
 	(x < -PWM_MAX)? -PWM_MAX:	\
@@ -500,11 +504,12 @@ void tofReadSides()
 
 #define RANGE2() (tofmeasr[0].RangeMilliMeter)
 #define RANGE1() (tofmeasr[5].RangeMilliMeter)
-#define R_KP (0.5)
-#define R_KD (1.5)
+#define R_KP (1.5)
+#define R_KD (1.0)
 #define R_KI (0.000000)
 #define R_OFFS (40.0)  // mm
 #define R_thrsh (10.0) // mm
+#define R_OUTPUT_LIMIT (PWM_MAX*0.5)
 double R1err = 0;
 double R2err = 0;
 #define R_isCompleted(err) (abs(err) < R_thrsh)
@@ -521,7 +526,7 @@ double R1_pid(double exrange) { // return speed
 	R1err = err;
 	i += err;
 
-	return LIMIT_OUTPUT(PID);
+	return LIMIT_OUTPUT_TO(PID, R_OUTPUT_LIMIT);
 }
 double R2_pid(double exrange) { // return speed
 	static double i;
@@ -534,7 +539,7 @@ double R2_pid(double exrange) { // return speed
 	R2err = err;
 	i += err;
 
-	return LIMIT_OUTPUT(PID);
+	return LIMIT_OUTPUT_TO(PID, R_OUTPUT_LIMIT);
 }
 
 #define RT_KP (0.4)
@@ -557,7 +562,6 @@ double RightTrack_pid(double exrange) { // return speed
 void front_calib_blocking()
 {	
 	while(1) {
-		tofReadFronts();
 		M1change(R1_pid(100.0+R_OFFS));
 		M2change(R2_pid(100.0+R_OFFS));
 		if (RS_isCompleted()) {
@@ -571,7 +575,6 @@ void front_calib_blocking()
 void sumo()
 {	
 	while(1) {
-		tofReadFronts();
 		M1change(R1_pid(-100));
 		M2change(R2_pid(-100));
 	}
@@ -593,6 +596,8 @@ void turn180(int side)
 	}
 }
 
+volatile uint32_t deltaT;
+
 void turnLeft()
 {
 	Mrotate(90, PWM_MAX);
@@ -601,37 +606,34 @@ void turnRight()
 {
 	Mrotate(-90, PWM_MAX);
 }
-#define FORW_SPEED (PWM_MAX/3)
+#define FORW_SPEED (PWM_MAX/8)
 enum STATES {
 	POST_DETECTED = 0,
 	FRONT_WALL_DETECTED
 };
 int run_straight() {
 	while (1) {
-		tofReadFronts();
 		if ((tofmeasr[0].RangeMilliMeter+tofmeasr[5].RangeMilliMeter)/2 <= 200+R_OFFS) {// TODO: constant name
 			M1change(0);
 			M2change(0);
 			return FRONT_WALL_DETECTED;
 		}
 		for (int i=0; i<3; i++) {
-			wait_getData(&devs[4], &tofmeasr[4]);
 			if (tofmeasr[4].RangeMilliMeter >(250) ||
 				tofmeasr[4].RangeStatus != 0) {
 				M1change(0);
 				M2change(0);
-				if (i>2) return POST_DETECTED;
+				if (i>1) return POST_DETECTED;
 				else continue;
 			}
 			break;
 		}
-		wait_getData(&devs[1], &tofmeasr[1]);
 		
 		double pwm, m1, m2;
 		pwm = RightTrack_pid(tofmeasr[1].RangeMilliMeter);
 			
-			m1 = LIMIT_OUTPUT(-pwm+FORW_SPEED);
-			m2 = LIMIT_OUTPUT(pwm+FORW_SPEED);
+		m1 = LIMIT_OUTPUT(-pwm+FORW_SPEED);
+		m2 = LIMIT_OUTPUT(pwm+FORW_SPEED);
 		M1change(m1);
 		M2change(m2);
 	}
@@ -653,7 +655,6 @@ void MS_moveTo(uint16_t exrange)
 	while(1) {
 		M1change(0.4);
 		M2change(0.4);
-		wait_getData(&devs[4], &tofmeasr[4]);
 		if (tofmeasr[4].RangeMilliMeter <= exrange) {
 			M1change(0);
 			M2change(0);
@@ -724,7 +725,7 @@ int main(void)
 	// M1change(PWM_MAX/4);
 	// M2change(PWM_MAX/4);
 	int ret;
-	test_sensor();
+	// test_sensor();
 	//sumo();
   /* USER CODE END 2 */
 
@@ -740,7 +741,6 @@ int main(void)
 			// while(1);
 			front_calib_blocking();
 			DELAY();
-			tofReadSides();
 			if (tofmeasr[2].RangeMilliMeter > 300) {
 				turnLeft();
 				DELAY();
@@ -752,7 +752,6 @@ int main(void)
 		} else if (ret == POST_DETECTED) {
 			MS_moveTo(160);
 			DELAY();
-			tofReadFronts();
 			if ((tofmeasr[0].RangeMilliMeter + tofmeasr[5].RangeMilliMeter)/2 < (100 + R_OFFS))
 				if (abs(tofmeasr[0].RangeMilliMeter - tofmeasr[5].RangeMilliMeter) < 50)
 					continue;
@@ -823,6 +822,7 @@ const uint16_t INT_SEN_PINS[] = {
 };
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) 
 {
+	static uint32_t tick;
 	if (GPIO_Pin == MPU6050_INT_Pin) {
 		return;
 		if (isMpuInit) {
@@ -833,8 +833,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if (tof_AllInitialized) {
 		for (int i=0; i<6; i++) {
 			if (GPIO_Pin == INT_SEN_PINS[i]) {
-				if (devs[i].isInitialized)
+				if (devs[i].isInitialized) {
 					tof_getData(&devs[i], &tofmeasr[i]);
+					if (i==1) {
+						uint32_t tick0 = HAL_GetTick();
+						deltaT = tick0 - tick;
+						tick = tick0;
+					}
+				}
 			}
 		}
 	}
